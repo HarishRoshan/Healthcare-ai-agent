@@ -2,6 +2,10 @@
 import json
 from openai import OpenAI
 from pydantic import BaseModel, Field, ValidationError
+from healthcare_tools import (
+    get_appointment_count,
+    get_patient_status
+)
 
 # STEP 1: Fictional healthcare data
 appointments = {
