@@ -1,7 +1,8 @@
 
 import json
 from openai import OpenAI
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import ValidationError
+from healthcare_validation import PatientInput
 from healthcare_tools import (
     get_appointment_count,
     get_patient_status
@@ -36,8 +37,6 @@ def get_patient_status(patient_id):
 
 
 # STEP 3: Validate patient IDs
-class PatientInput(BaseModel):
-    patient_id: int = Field(gt=0, strict=True)
 
 
 # STEP 4: Connect to OpenAI
