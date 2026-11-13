@@ -19,7 +19,7 @@ jobs:
           python-version: '3.13'
 
       - name: Install pytest
-        run: python -m pip install pytest
-
+        run:  python -m pip install pytest pydantic
       - name: Run healthcare tests
         run: python -m pytest test_healthcare.py -v
+	
