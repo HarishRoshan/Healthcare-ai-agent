@@ -1,0 +1,26 @@
+﻿.env
+.env.*
+.venv/
+venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.git/
+node_modules/
+dist/
+build/
+*.log
+data/
+backups/
+# Local SQLite databases
+*.db
+*.sqlite
+*.sqlite3
+
+# Historical Python code snapshots
+*_backup.py
+*_before_*.py
+audit_logger_backup/
+
+# Generated RAG cache
+rag_embeddings_cache.json

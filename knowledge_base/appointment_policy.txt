@@ -1,0 +1,26 @@
+
+AURA DEMO CLINIC — APPOINTMENT POLICY
+Document ID: AURA-POL-001
+Version: 1.0
+Status: Fictional training document
+
+1. Appointment Cancellation
+Patients should cancel appointments at least 24 hours
+before their scheduled appointment.
+
+2. Missed Appointments
+If a patient misses an appointment, they should contact
+the clinic reception to arrange another appointment.
+
+3. Appointment Rescheduling
+Patients may request rescheduling by contacting the
+clinic reception team.
+
+4. Emergency Situations
+This appointment policy is not intended for emergencies.
+Patients experiencing a medical emergency should contact
+the appropriate emergency service.
+
+5. Information Scope
+This document is for the fictional AURA Demo Clinic.
+It must not be presented as official NHS policy.

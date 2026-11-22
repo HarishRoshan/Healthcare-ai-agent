@@ -14,3 +14,58 @@ __pycache__/
 # Editor files
 .vscode/
 .idea/
+
+# Environment variables and secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Python virtual environments
+.venv/
+venv/
+env/
+.env
+
+# Python cache
+__pycache__/
+*.pyc
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Local databases
+*.db
+*.sqlite
+*.sqlite3
+
+# JavaScript dependencies
+node_modules/
+frontend/node_modules/
+
+# Frontend build output
+frontend/dist/
+dist/
+
+# Editor and operating system files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Local logs
+*.log
+# Local database and backup directories
+data/
+backups/
+audit_logger_backup/
+
+# Historical code snapshots
+*_backup.py
+*_before_*.py
+
+# Generated RAG cache
+rag_embeddings_cache.json
+*_backup.jsx
+*_before_*.jsx

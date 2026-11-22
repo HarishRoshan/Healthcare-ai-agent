@@ -1,0 +1,12 @@
+
+services:
+  aura-backend:
+    build: .
+    image: aura-ai:v1
+    env_file:
+      - .env
+    ports:
+      - "127.0.0.1:8001:8001"
+    volumes:
+      - ./data/healthcare.db:/app/healthcare.db
+    restart: unless-stopped
