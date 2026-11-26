@@ -1,3 +1,18 @@
+import sqlite3
+
+from aura_usage_quota import (
+    UsageQuota,
+    UsageQuotaExceeded,
+)
+
+from aura_input_guard import (
+    validate_question,
+    InputTokenLimitExceeded,
+)
+from aura_rate_limiter import SlidingWindowRateLimiter
+from pathlib import Path
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 import logging
 import time
 import uuid
@@ -50,6 +65,45 @@ logger.setLevel(logging.INFO)
 logger.handlers.clear()
 logger.addHandler(logging.StreamHandler())
 logger.propagate = False
+# API rate limiting
+rate_limiter = SlidingWindowRateLimiter()
+
+RATE_LIMIT_ENABLED = (
+    os.environ.get("AURA_RATE_LIMIT_ENABLED", "false")
+    .lower() == "true"
+)
+
+def check_rate_limit(request: Request):
+    if not RATE_LIMIT_ENABLED:
+        return None
+
+    path = request.url.path.rstrip("/")
+    method = request.method
+
+    if method == "POST" and path == "/auth/login":
+        category, limit = "login", 5
+    elif method == "POST" and path == "/agent/ask":
+        category, limit = "agent", 10
+    elif method == "GET" and (
+        path == "/patients" or path.startswith("/patients/")
+    ):
+        category, limit = "patients", 30
+    else:
+        return None
+
+    client_ip = request.client.host if request.client else "unknown"
+    allowed, retry_after = rate_limiter.allow(
+        f"{category}:{client_ip}", limit, window_seconds=60
+    )
+
+    if not allowed:
+        return JSONResponse(
+            status_code=429,
+            content={"detail": "Too many requests. Please try again later."},
+            headers={"Retry-After": str(retry_after)},
+        )
+    return None
+
 
 @app.middleware("http")
 async def trace_requests(request, call_next):
@@ -59,7 +113,9 @@ async def trace_requests(request, call_next):
     status = "success"
 
     try:
-        response = await call_next(request)
+        response = check_rate_limit(request)
+        if response is None:
+            response = await call_next(request)
 
         if response.status_code >= 400:
             status = "error"
@@ -102,6 +158,7 @@ app.add_middleware(
 
 COOKIE_NAME = "aura_session"
 SESSION_DURATION_SECONDS = 3600
+COOKIE_SECURE = os.environ.get("AURA_COOKIE_SECURE", "false").lower() == "true"
 
 
 # -----------------------------------
@@ -279,7 +336,7 @@ def login(credentials: LoginRequest, response: Response):
         key=COOKIE_NAME,
         value=token,
         httponly=True,
-        secure=False,  # Local HTTP development only.
+        secure=COOKIE_SECURE,
         samesite="lax",
         max_age=SESSION_DURATION_SECONDS,
     )
@@ -410,6 +467,9 @@ def patient_status(
 # AI agent endpoint
 # -----------------------------------
 
+usage_quota = UsageQuota()
+
+
 @app.post("/agent/ask")
 def ask_agent(
     request: AgentQuestion,
@@ -421,6 +481,16 @@ def ask_agent(
     )
 
     try:
+        if not request.question.strip():
+            raise HTTPException(
+                status_code=400,
+                detail="A question is required",
+            )
+
+        validate_question(request.question)
+
+        usage_quota.reserve_request()
+
         answer = ask_healthcare_agent(
             request.question,
             allowed_patient_ids=allowed_ids,
@@ -432,11 +502,39 @@ def ask_agent(
             "answer": answer,
         }
 
+    except UsageQuotaExceeded as error:
+        logger.warning(
+            "Global usage quota exhausted"
+        )
+
+        raise HTTPException(
+            status_code=429,
+            detail="Demo usage limit reached. Please try again later.",
+        ) from error
+
+    except InputTokenLimitExceeded as error:
+        raise HTTPException(
+            status_code=400,
+            detail="Request exceeds the allowed token limit",
+        ) from error
+
+    except sqlite3.Error as error:
+        logger.error(
+            "Database operation failed: %s",
+            type(error).__name__,
+        )
+
+        raise HTTPException(
+            status_code=503,
+            detail="Service temporarily unavailable",
+        ) from error
+
     except OpenAIError as error:
         logger.error(
             "AI provider error: %s",
             type(error).__name__,
         )
+
         raise HTTPException(
             status_code=502,
             detail="AI service temporarily unavailable",
@@ -447,7 +545,28 @@ def ask_agent(
             "Agent execution error: %s",
             type(error).__name__,
         )
+
         raise HTTPException(
             status_code=503,
             detail="Agent could not complete the request",
         ) from error
+# Production React frontend
+FRONTEND_DIST = (
+    Path(__file__).resolve().parent
+    / "frontend"
+    / "dist"
+)
+
+if (FRONTEND_DIST / "index.html").is_file():
+
+    app.mount(
+        "/assets",
+        StaticFiles(directory=FRONTEND_DIST / "assets"),
+        name="frontend_assets",
+    )
+
+    @app.get("/", include_in_schema=False)
+    def serve_frontend():
+        return FileResponse(
+            FRONTEND_DIST / "index.html"
+        )

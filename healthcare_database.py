@@ -1,7 +1,14 @@
+import os
 import sqlite3
+from pathlib import Path
 
-connection = sqlite3.connect("healthcare.db")
-
+DATABASE_PATH = Path(
+    os.environ.get(
+        "AURA_DATABASE_PATH",
+        str(Path(__file__).with_name("healthcare.db"))
+    )
+)
+connection = sqlite3.connect(DATABASE_PATH)
 cursor = connection.cursor()
 
 # Create patients table

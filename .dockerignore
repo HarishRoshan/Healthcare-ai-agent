@@ -24,3 +24,11 @@ audit_logger_backup/
 
 # Generated RAG cache
 rag_embeddings_cache.json
+# Frontend exclusions
+**/node_modules
+**/dist
+**/build
+**/.env
+**/.env.*
+**/*_backup.jsx
+**/*_before_*.jsx

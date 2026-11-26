@@ -1,7 +1,12 @@
+﻿from aura_input_guard import (
+    validate_question,
+    validate_llm_input,
+)
 import logging
 import time
 
 from aura_tracing import get_trace_id
+from aura_execution_budget import ExecutionBudget, ExecutionBudgetExceeded
 import json
 import re
 
@@ -26,19 +31,44 @@ load_dotenv(
     dotenv_path=Path(__file__).resolve().parent / ".env"
 )
 
-client = OpenAI()
+MAX_OUTPUT_TOKENS = 500
+OPENAI_TIMEOUT_SECONDS = 30.0
+
+client = OpenAI(timeout=OPENAI_TIMEOUT_SECONDS, max_retries=0)
 MODEL = "gpt-4.1-mini"
 
 logger = logging.getLogger("aura.observability")
 
 
-def traced_openai_call(stage: str, **kwargs):
+
+def traced_openai_call(stage: str, budget=None, **kwargs):
     """Measure OpenAI API latency without logging sensitive content."""
+    kwargs["max_output_tokens"] = MAX_OUTPUT_TOKENS
+    validate_llm_input(kwargs)
     start_time = time.perf_counter()
     status = "success"
 
     try:
-        return client.responses.create(**kwargs)
+        if budget is not None:
+            budget.consume_llm_call()
+        # Enforce the output ceiling for every Responses API call.
+        kwargs["max_output_tokens"] = MAX_OUTPUT_TOKENS
+        response = client.responses.create(**kwargs)
+
+        usage = getattr(response, "usage", None)
+
+        if usage is not None:
+            logger.info(
+                "trace_id=%s operation=llm_token_usage "
+                "stage=%s input_tokens=%s output_tokens=%s total_tokens=%s",
+                get_trace_id() or "standalone",
+                stage,
+                getattr(usage, "input_tokens", None),
+                getattr(usage, "output_tokens", None),
+                getattr(usage, "total_tokens", None),
+            )
+
+        return response
 
     except Exception:
         status = "error"
@@ -258,7 +288,7 @@ def looks_like_conditional_appointment_request(question):
     )
 
 
-def conditional_appointment_request(question):
+def conditional_appointment_request(question, budget=None):
     """Extract a plan with AI; reject uncertain or inconsistent interpretations.
 
     Returns None for ordinary requests, 'unsupported' for unsafe/ambiguous
@@ -279,6 +309,7 @@ def conditional_appointment_request(question):
     try:
         response = traced_openai_call(
             stage="conditional_planner",
+            budget=budget,
             model=MODEL,
             instructions=(
                 "Extract a conditional appointment-count workflow from the "
@@ -300,6 +331,8 @@ def conditional_appointment_request(question):
             },
         )
         plan = ConditionalWorkflow.model_validate_json(response.output_text)
+    except ExecutionBudgetExceeded:
+        raise
     except (ValidationError, ValueError, TypeError, KeyError, AttributeError):
         return "unsupported"
     except Exception:
@@ -314,9 +347,11 @@ def conditional_appointment_request(question):
 
 
 def run_conditional_appointment_workflow(patient_id, required_status,
-                                         allowed_patient_ids, username):
+                                         allowed_patient_ids, username, budget=None):
     """Execute the condition in Python, not via LLM-selected tool calls."""
     arguments = json.dumps({"patient_id": patient_id})
+    if budget is not None:
+        budget.consume_tool_call()
     status_result = execute_tool(
         "get_patient_status", arguments,
         allowed_patient_ids=allowed_patient_ids,
@@ -338,6 +373,8 @@ def run_conditional_appointment_workflow(patient_id, required_status,
             "so I did not check appointments."
         )
 
+    if budget is not None:
+        budget.consume_tool_call()
     count_result = execute_tool(
         "get_appointment_count", arguments,
         allowed_patient_ids=allowed_patient_ids,
@@ -355,6 +392,7 @@ def run_conditional_appointment_workflow(patient_id, required_status,
     )
 
 
+
 def run_agent(
     question,
     previous_response_id=None,
@@ -362,8 +400,7 @@ def run_agent(
     allowed_patient_ids=None,
     username=None,
 ):
-    if not isinstance(question, str) or not question.strip():
-        raise ValueError("A question is required")
+    validate_question(question)
 
     # Snapshot permissions for this request.
     # No permissions means no patient access.
@@ -373,7 +410,8 @@ def run_agent(
         else ()
     )
 
-    conditional_request = conditional_appointment_request(question)
+    budget = ExecutionBudget()
+    conditional_request = conditional_appointment_request(question, budget=budget)
     if conditional_request == "unsupported":
         return (
             "I cannot safely interpret that conditional appointment request. "
@@ -384,7 +422,7 @@ def run_agent(
     if conditional_request is not None:
         patient_id, required_status = conditional_request
         answer = run_conditional_appointment_workflow(
-            patient_id, required_status, authorized_ids, username,
+            patient_id, required_status, authorized_ids, username, budget=budget,
         )
         return answer, None
 
@@ -406,11 +444,12 @@ def run_agent(
 
     response = traced_openai_call(
         stage="initial",
+        budget=budget,
         **request,
     )
     policy_matches = []
 
-    for _ in range(5):
+    while True:
         tool_outputs = []
 
         for item in response.output:
@@ -420,6 +459,9 @@ def run_agent(
             if verbose:
                 print("AI selected tool:", item.name)
 
+            if budget.llm_calls >= budget.max_llm_calls:
+                raise ExecutionBudgetExceeded("No LLM budget remains for tool results")
+            budget.consume_tool_call()
             result = execute_tool(
                 item.name,
                 item.arguments,
@@ -473,6 +515,7 @@ def run_agent(
 
         response = traced_openai_call(
             stage="tool_followup",
+            budget=budget,
             model=MODEL,
             instructions=AGENT_INSTRUCTIONS,
             previous_response_id=response.id,
@@ -481,7 +524,6 @@ def run_agent(
             tool_choice="auto",
         )
 
-    raise RuntimeError("Agent exceeded maximum tool rounds")
 
 
 # FastAPI entry point.
@@ -545,3 +587,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

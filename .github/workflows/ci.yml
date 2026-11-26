@@ -9,6 +9,11 @@ jobs:
   security-tests:
     runs-on: ubuntu-latest
 
+    env:
+      AURA_RATE_LIMIT_ENABLED: "false"
+      AURA_USAGE_DB_PATH: ${{ runner.temp }}/aura_test_usage.db
+      TIKTOKEN_CACHE_DIR: ${{ github.workspace }}/tokenizer_cache
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -24,8 +29,18 @@ jobs:
           python -m pip install -r requirements.txt
           python -m pip install pytest
 
-      - name: Run security tests
-        run: python -m pytest test_phase1_security.py -v
+      - name: Run automated regression tests
+        run: |
+          python -m pytest \
+            test_phase1_security.py \
+            test_database_isolation.py \
+            test_rate_limiter.py \
+            test_api_rate_limiting.py \
+            test_execution_budget.py \
+            test_agent_execution_budget.py \
+            test_input_guard.py \
+            test_usage_quota.py \
+            test_api_usage_quota.py -v
 
   docker-build:
     runs-on: ubuntu-latest
@@ -36,3 +51,7 @@ jobs:
 
       - name: Build Docker image
         run: docker build -t aura-ai:ci .
+
+      - name: Verify offline tokenizer
+        run: |
+          docker run --rm --network none aura-ai:ci python -c "from aura_input_guard import count_tokens; assert count_tokens('Hello world') == 2"

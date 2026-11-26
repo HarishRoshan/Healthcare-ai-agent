@@ -1,7 +1,33 @@
+
+FROM node:24-bookworm-slim AS frontend-builder
+
+WORKDIR /frontend
+
+COPY frontend/package.json frontend/package-lock.json ./
+
+RUN npm ci
+
+COPY frontend/ ./
+
+RUN npm run build
+
+
 FROM python:3.13-slim
+
 WORKDIR /app
+
 COPY requirements.txt .
+
 RUN python -m pip install --no-cache-dir -r requirements.txt
+
 COPY . .
+
+ENV TIKTOKEN_CACHE_DIR=/app/tokenizer_cache
+
+COPY tokenizer_cache/ /app/tokenizer_cache/
+
+COPY --from=frontend-builder /frontend/dist /app/frontend/dist
+
 EXPOSE 8001
+
 CMD ["python", "-m", "uvicorn", "healthcare_api:app", "--host", "0.0.0.0", "--port", "8001"]

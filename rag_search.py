@@ -1,5 +1,7 @@
+﻿import sys
 
 import math
+from aura_input_guard import validate_question
 
 from openai import OpenAI
 from rag_loader import load_document, chunk_document
@@ -11,12 +13,24 @@ from functools import lru_cache
 def get_question_embedding(question):
     """Reuse embeddings for repeated policy questions."""
 
-    client = OpenAI()
+    validate_question(question)
+
+    client = OpenAI(timeout=30.0, max_retries=0)
 
     response = client.embeddings.create(
         model="text-embedding-3-small",
         input=question
     )
+
+    usage = getattr(response, "usage", None)
+
+    if usage is not None:
+        print(
+            f"operation=embedding_token_usage "
+            f"prompt_tokens={getattr(usage, 'prompt_tokens', None)} "
+            f"total_tokens={getattr(usage, 'total_tokens', None)}",
+            file=sys.stderr,
+        )
 
     return response.data[0].embedding
 
@@ -85,3 +99,6 @@ if __name__ == "__main__":
         print(f"\nSimilarity score: {score:.4f}")
         print(chunk)
         print("-----------------------------")
+
+
+

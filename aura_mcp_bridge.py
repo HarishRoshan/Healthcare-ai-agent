@@ -1,6 +1,7 @@
-"""Connect AURA's existing AI agent to its local MCP server."""
+﻿"""Connect AURA's existing AI agent to its local MCP server."""
 
 import asyncio
+import os
 import json
 import logging
 import sys
@@ -26,6 +27,15 @@ async def _search_policy_async(question: str) -> dict:
         command=sys.executable,
         args=[str(server_path)],
         cwd=str(server_path.parent),
+        env={
+            key: os.environ[key]
+            for key in (
+                "OPENAI_API_KEY",
+                "AURA_RAG_CACHE_PATH",
+                "TIKTOKEN_CACHE_DIR",
+            )
+            if key in os.environ
+        },
     )
 
     connection_start = time.perf_counter()
@@ -108,11 +118,11 @@ def search_policy_via_mcp(
         try:
             asyncio.get_running_loop()
         except RuntimeError:
-            result = asyncio.run(_search_policy_async(question))
+            result = asyncio.run(asyncio.wait_for(_search_policy_async(question), timeout=90.0))
         else:
             with ThreadPoolExecutor(max_workers=1) as executor:
                 result = executor.submit(
-                    lambda: asyncio.run(_search_policy_async(question))
+                    lambda: asyncio.run(asyncio.wait_for(_search_policy_async(question), timeout=90.0))
                 ).result()
 
         if isinstance(result, dict) and result.get("error"):
@@ -136,3 +146,4 @@ def search_policy_via_mcp(
             status,
             duration_ms,
         )
+

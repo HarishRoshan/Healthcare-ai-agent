@@ -1,10 +1,15 @@
-
+import os
 import sqlite3
 from contextlib import closing
 from datetime import datetime, timezone
 from pathlib import Path
 
-AUDIT_DB = Path(__file__).resolve().parent / "aura_audit.db"
+AUDIT_DB = Path(
+    os.environ.get(
+        "AURA_AUDIT_DB_PATH",
+        str(Path(__file__).resolve().parent / "aura_audit.db")
+    )
+)
 
 
 def initialize_audit_database():

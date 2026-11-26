@@ -5,8 +5,14 @@ services:
     image: aura-ai:v1
     env_file:
       - .env
+    environment:
+      AURA_DATABASE_PATH: /data/healthcare.db
+      AURA_AUDIT_DB_PATH: /data/aura_audit.db
+      AURA_USAGE_DB_PATH: /data/aura_usage.db
+      AURA_RAG_CACHE_PATH: /data/rag_embeddings_cache.json
+      AURA_RATE_LIMIT_ENABLED: "true"
     ports:
       - "127.0.0.1:8001:8001"
     volumes:
-      - ./data/healthcare.db:/app/healthcare.db
+      - ./data:/data
     restart: unless-stopped

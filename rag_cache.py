@@ -1,5 +1,7 @@
-
+﻿
 import hashlib
+import os
+import sys
 import json
 from pathlib import Path
 
@@ -8,7 +10,14 @@ from rag_embeddings import create_embeddings
 
 
 BASE_DIR = Path(__file__).resolve().parent
-CACHE_PATH = BASE_DIR / "rag_embeddings_cache.json"
+CACHE_PATH = Path(
+    os.environ.get(
+        "AURA_RAG_CACHE_PATH",
+        str(BASE_DIR / "rag_embeddings_cache.json")
+    )
+)
+
+CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
 
 EMBEDDING_MODEL = "text-embedding-3-small"
 
@@ -40,13 +49,13 @@ def load_or_create_embeddings():
                 and cache.get("chunks") == chunks
                 and len(cache.get("embeddings", [])) == len(chunks)
             ):
-                print("Using cached embeddings.")
+                print("Using cached embeddings.", file=sys.stderr)
                 return chunks, cache["embeddings"]
 
         except (json.JSONDecodeError, OSError, TypeError):
-            print("Cache unreadable. Rebuilding.")
+            print("Cache unreadable. Rebuilding.", file=sys.stderr)
 
-    print("Generating new embeddings...")
+    print("Generating new embeddings...", file=sys.stderr)
 
     embeddings = create_embeddings(chunks)
 
@@ -70,3 +79,4 @@ if __name__ == "__main__":
 
     print(f"Chunks: {len(chunks)}")
     print(f"Embeddings: {len(embeddings)}")
+

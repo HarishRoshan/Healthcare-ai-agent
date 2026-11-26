@@ -1,8 +1,13 @@
-
+import os
 import sqlite3
 from pathlib import Path
 
-DB_PATH = Path(__file__).with_name("healthcare.db")
+DB_PATH = Path(
+    os.environ.get(
+        "AURA_DATABASE_PATH",
+        str(Path(__file__).with_name("healthcare.db"))
+    )
+)
 
 
 class DatabaseUnavailableError(Exception):
