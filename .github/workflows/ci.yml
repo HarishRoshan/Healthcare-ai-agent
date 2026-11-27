@@ -11,7 +11,8 @@ jobs:
 
     env:
       AURA_RATE_LIMIT_ENABLED: "false"
-      AURA_USAGE_DB_PATH: ${{ runner.temp }}/aura_test_usage.db
+      AURA_DB_BACKEND: "sqlite"
+      AURA_USAGE_DB_PATH: /tmp/aura_test_usage.db
       TIKTOKEN_CACHE_DIR: ${{ github.workspace }}/tokenizer_cache
 
     steps:
