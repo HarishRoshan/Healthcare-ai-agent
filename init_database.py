@@ -1,7 +1,14 @@
 
 import os
 import sqlite3
+
 from pathlib import Path
+from contextlib import closing
+
+from aura_database import (
+    using_postgresql,
+    postgres_connection,
+)
 
 
 DATABASE_PATH = Path(
@@ -13,12 +20,29 @@ DATABASE_PATH = Path(
 
 
 def initialize_database():
+
+    if using_postgresql():
+
+        with postgres_connection() as connection:
+
+            connection.execute(
+                "SELECT 1 FROM public.patients LIMIT 0"
+            )
+
+            connection.execute(
+                "SELECT 1 FROM public.usage_counts LIMIT 0"
+            )
+
+        print("AURA PostgreSQL database verified successfully.")
+        return
+
     DATABASE_PATH.parent.mkdir(
         parents=True,
-        exist_ok=True
+        exist_ok=True,
     )
 
-    with sqlite3.connect(DATABASE_PATH) as connection:
+    with closing(sqlite3.connect(DATABASE_PATH)) as connection:
+
         connection.execute("""
             CREATE TABLE IF NOT EXISTS patients (
                 patient_id INTEGER PRIMARY KEY,
@@ -30,7 +54,7 @@ def initialize_database():
         patients = [
             (101, 2, "Active"),
             (102, 4, "Active"),
-            (103, 1, "Inactive")
+            (103, 1, "Inactive"),
         ]
 
         connection.executemany("""
@@ -39,7 +63,9 @@ def initialize_database():
             VALUES (?, ?, ?)
         """, patients)
 
-    print("AURA database initialized successfully.")
+        connection.commit()
+
+    print("AURA SQLite database initialized successfully.")
 
 
 if __name__ == "__main__":

@@ -1,6 +1,16 @@
+
 import os
 import sqlite3
+import psycopg
+
 from pathlib import Path
+from contextlib import closing
+
+from aura_database import (
+    using_postgresql,
+    postgres_connection,
+)
+
 
 DB_PATH = Path(
     os.environ.get(
@@ -11,26 +21,47 @@ DB_PATH = Path(
 
 
 class DatabaseUnavailableError(Exception):
-    """Raised when a SQLite database operation fails."""
+    """Raised when a database operation fails."""
     pass
 
 
-def get_appointment_count(patient_id):
-    try:
-        with sqlite3.connect(DB_PATH) as connection:
-            cursor = connection.cursor()
+def _fetch_patient_data(sql, params=(), fetch_all=False):
 
-            cursor.execute(
-                "SELECT appointment_count FROM patients WHERE patient_id = ?",
-                (patient_id,)
+    try:
+        if using_postgresql():
+            with postgres_connection() as connection:
+                cursor = connection.execute(
+                    sql.replace("?", "%s"),
+                    params,
+                )
+
+                return (
+                    cursor.fetchall()
+                    if fetch_all
+                    else cursor.fetchone()
+                )
+
+        with closing(sqlite3.connect(DB_PATH)) as connection:
+            cursor = connection.execute(sql, params)
+
+            return (
+                cursor.fetchall()
+                if fetch_all
+                else cursor.fetchone()
             )
 
-            result = cursor.fetchone()
-
-    except sqlite3.Error as error:
+    except (sqlite3.Error, psycopg.Error, RuntimeError) as error:
         raise DatabaseUnavailableError(
             "Database temporarily unavailable"
         ) from error
+
+
+def get_appointment_count(patient_id):
+
+    result = _fetch_patient_data(
+        "SELECT appointment_count FROM patients WHERE patient_id = ?",
+        (patient_id,),
+    )
 
     if result is None:
         return {"error": "Patient not found"}
@@ -39,21 +70,11 @@ def get_appointment_count(patient_id):
 
 
 def get_patient_status(patient_id):
-    try:
-        with sqlite3.connect(DB_PATH) as connection:
-            cursor = connection.cursor()
 
-            cursor.execute(
-                "SELECT patient_status FROM patients WHERE patient_id = ?",
-                (patient_id,)
-            )
-
-            result = cursor.fetchone()
-
-    except sqlite3.Error as error:
-        raise DatabaseUnavailableError(
-            "Database temporarily unavailable"
-        ) from error
+    result = _fetch_patient_data(
+        "SELECT patient_status FROM patients WHERE patient_id = ?",
+        (patient_id,),
+    )
 
     if result is None:
         return {"error": "Patient not found"}
@@ -62,24 +83,15 @@ def get_patient_status(patient_id):
 
 
 def get_all_patients():
-    try:
-        with sqlite3.connect(DB_PATH) as connection:
-            cursor = connection.cursor()
 
-            cursor.execute(
-                """
-                SELECT patient_id, appointment_count, patient_status
-                FROM patients
-                ORDER BY patient_id
-                """
-            )
-
-            rows = cursor.fetchall()
-
-    except sqlite3.Error as error:
-        raise DatabaseUnavailableError(
-            "Database temporarily unavailable"
-        ) from error
+    rows = _fetch_patient_data(
+        """
+        SELECT patient_id, appointment_count, patient_status
+        FROM patients
+        ORDER BY patient_id
+        """,
+        fetch_all=True,
+    )
 
     patients = []
 
@@ -87,7 +99,7 @@ def get_all_patients():
         patients.append({
             "id": row[0],
             "appointments": row[1],
-            "status": row[2]
+            "status": row[2],
         })
 
     return {"patients": patients}

@@ -570,3 +570,24 @@ if (FRONTEND_DIST / "index.html").is_file():
         return FileResponse(
             FRONTEND_DIST / "index.html"
         )
+import psycopg
+from fastapi.responses import JSONResponse
+
+
+@app.exception_handler(psycopg.Error)
+@app.exception_handler(RuntimeError)
+async def infrastructure_error_handler(
+    request: Request,
+    exc: Exception,
+):
+    logger.error(
+        "Infrastructure operation failed: %s",
+        type(exc).__name__,
+    )
+
+    return JSONResponse(
+        status_code=503,
+        content={
+            "detail": "Service temporarily unavailable"
+        },
+    )

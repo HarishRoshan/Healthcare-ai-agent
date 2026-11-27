@@ -1,10 +1,16 @@
 
 import os
 import sqlite3
+import psycopg
 
 from pathlib import Path
 from datetime import datetime, timezone
 from contextlib import closing
+
+from aura_database import (
+    using_postgresql,
+    postgres_connection,
+)
 
 
 DAILY_LIMIT = 50
@@ -36,15 +42,24 @@ class UsageQuota:
         self.db_path = Path(db_path)
         self.daily_limit = daily_limit
         self.monthly_limit = monthly_limit
+        self.use_postgres = using_postgresql()
 
-        self.db_path.parent.mkdir(
-            parents=True,
-            exist_ok=True,
-        )
+        if not self.use_postgres:
+            self.db_path.parent.mkdir(
+                parents=True,
+                exist_ok=True,
+            )
 
         self.initialize_database()
 
     def initialize_database(self):
+
+        if self.use_postgres:
+            with postgres_connection() as conn:
+                conn.execute(
+                    "SELECT 1 FROM public.usage_counts LIMIT 0"
+                )
+            return
 
         with closing(sqlite3.connect(
             self.db_path, timeout=10
@@ -67,6 +82,9 @@ class UsageQuota:
 
         day = now.strftime("%Y-%m-%d")
         month = now.strftime("%Y-%m")
+
+        if self.use_postgres:
+            return self._reserve_postgres(day, month)
 
         with closing(sqlite3.connect(
             self.db_path, timeout=10
@@ -98,16 +116,86 @@ class UsageQuota:
 
                 conn.commit()
 
-                return {
-                    "daily_used": daily_count + 1,
-                    "monthly_used": monthly_count + 1,
-                    "daily_limit": self.daily_limit,
-                    "monthly_limit": self.monthly_limit,
-                }
+                return self._result(
+                    daily_count + 1,
+                    monthly_count + 1,
+                )
 
             except Exception:
                 conn.rollback()
                 raise
+
+    def _reserve_postgres(self, day, month):
+
+        try:
+            with postgres_connection() as conn:
+
+                monthly_used = self._increment_postgres(
+                    conn,
+                    "monthly",
+                    month,
+                    self.monthly_limit,
+                )
+
+                daily_used = self._increment_postgres(
+                    conn,
+                    "daily",
+                    day,
+                    self.daily_limit,
+                )
+
+                return self._result(
+                    daily_used,
+                    monthly_used,
+                )
+
+        except psycopg.Error as error:
+            raise RuntimeError(
+                "Usage quota database unavailable"
+            ) from error
+
+    @staticmethod
+    def _increment_postgres(
+        conn, period_type, period_key, limit
+    ):
+
+        row = conn.execute("""
+            INSERT INTO public.usage_counts (
+                period_type,
+                period_key,
+                request_count
+            )
+            VALUES (%s, %s, 1)
+
+            ON CONFLICT (period_type, period_key)
+            DO UPDATE SET
+                request_count =
+                    usage_counts.request_count + 1
+
+            WHERE usage_counts.request_count < %s
+
+            RETURNING request_count
+        """, (
+            period_type,
+            period_key,
+            limit,
+        )).fetchone()
+
+        if row is None:
+            raise UsageQuotaExceeded(
+                f"{period_type.capitalize()} usage quota exceeded"
+            )
+
+        return row[0]
+
+    def _result(self, daily_used, monthly_used):
+
+        return {
+            "daily_used": daily_used,
+            "monthly_used": monthly_used,
+            "daily_limit": self.daily_limit,
+            "monthly_limit": self.monthly_limit,
+        }
 
     @staticmethod
     def _get_count(conn, period_type, period_key):
